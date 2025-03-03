@@ -1,0 +1,9 @@
+*
+
+!build.sbt
+!project/
+!project/build.properties
+!src/
+!src/**
+src/main/parquet/
+!.gitignore

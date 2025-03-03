@@ -1,0 +1,51 @@
+val path = """/home/oleg/projects/kp_project/src/main/parquet"""
+spark.conf.set("spark.sql.legacy.timeParserPolicy", "LEGACY")
+
+val session_df = spark.read.parquet(path + "/session")
+session_df.filter($"sessionEnd".isNull).show  // 0
+session_df.count  // 10000
+
+val docOpen_df = spark.read.parquet(path + "/open")
+
+val cd_df = spark.read.parquet(path + "/cs")
+cd_df.count  // 3924
+cd_df.select($"csParamId").distinct
+
+val cs_result_df = spark.read.parquet(path + "/cs_result")
+cs_result_df.show
+
+val open_df = spark.read.parquet(path + "/doc_open")
+open_df.count // 102872
+open_df.withColumn("docOpenTS", to_timestamp($"docOpenTime", "dd.MM.yyyy_HH:mm:ss")).filter($"docOpenTS".isNull).count // 6566
+open_df.withColumn("docOpenTS", to_timestamp($"docOpenTime", "dd.MM.yyyy_HH:mm:ss")).filter($"docOpenTS".isNull).filter($"docOpenTime" =!= "").count // 0
+
+val qs_df = spark.read.parquet(path + "/qs")
+qs_df.count // 16122
+qs_df.withColumn("qsTS", to_timestamp($"qsTime", "dd.MM.yyyy_HH:mm:ss")).filter($"qsTS".isNull).count // 3070
+qs_df.withColumn("qsTS", coalesce(to_timestamp($"qsTime", "dd.MM.yyyy_HH:mm:ss"), to_timestamp($"qsTime", "EEE,_d_MMM_yyyy_HH:mm:ss_Z"))).filter($"qsTS".isNull).count // 0
+qs_df.withColumn("qsTS", coalesce(to_timestamp($"qsTime", "dd.MM.yyyy_HH:mm:ss"), to_timestamp($"qsTime", "EEE,_d_MMM_yyyy_HH:mm:ss_Z")))
+    .withColumn("qsDate", to_date($"qsTS"))
+    .select($"filename", $"qsId", $"qsDate")
+    .show
+
+//1)	Количество раз, когда в карточке производили поиск документа с идентификатором ACC_45616
+
+cd_df.filter($"csParamName".like("ACC_45616")).count  // 23
+
+cs_result_df.filter($"document" === "ACC_45616").count  // 446
+
+//2)	Количество открытий каждого документа, найденного через быстрый поиск за каждый день.
+
+val qs_df_date = {qs_df.withColumn("qsTS", coalesce(to_timestamp($"qsTime", "dd.MM.yyyy_HH:mm:ss"), to_timestamp($"qsTime", "EEE,_d_MMM_yyyy_HH:mm:ss_Z")))
+                 .withColumn("qsDate", to_date($"qsTS"))
+                 .select($"filename", $"qsId", $"qsDate")}
+
+
+val open_df_s = open_df.select($"fileName", $"docOpenId", $"docOpenDoc")
+
+qs_df_date.as("qs")
+    .join(open_df_s.as("open"), $"qs.qsId" === $"open.docOpenId", "left")
+    .select($"qs.qsDate", $"open.docOpenDoc")
+    .groupBy($"qsDate", $"docOpenDoc").count()
+    .orderBy($"count".desc)
+    .coalesce(1).write.option("sep", ",").option("header", "true").csv("/home/oleg/projects/kp_project/src/main/results/csv")
