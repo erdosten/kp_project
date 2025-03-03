@@ -7,3 +7,4 @@
 !src/**
 src/main/parquet/
 !.gitignore
+!README.md
